@@ -6,7 +6,7 @@ const fs = require("fs");
 const path = require("path");
 const BigNumber = require("bignumber.js");
 const Web3EthContract = require("web3-eth-contract");
-
+const request = require("async-request");
 const Utils = require("../../utils");
 
 const masterChefAddress = "0x73feaa1eE314F8c655E354234017bE2193C9E24E";
@@ -43,7 +43,7 @@ module.exports = class pancake {
   }
 
   async getFetchedFarms() {
-    const cacheKey = `pancake-v1-master-farms`
+    const cacheKey = `pancake-v2-master-farms`
 
     const cache = await this.cacheManager.get(cacheKey)
     if (cache) {
@@ -114,6 +114,17 @@ module.exports = class pancake {
     return result;
   }
 
+  async getApy() {
+    try {
+      const response = await request("https://api.beefy.finance/apy");
+      return JSON.parse(response.body);
+    } catch (e) {
+      console.error("pancake: https://api.beefy.finance/apy", e.message);
+    }
+
+    return [];
+  }
+
   async getFarms(refresh = false) {
     const cacheKey = "getFarms-pancake";
 
@@ -124,7 +135,10 @@ module.exports = class pancake {
       }
     }
 
-    const farms = await this.getFetchedFarms();
+    const [farms, apys] = await Promise.all([
+      this.getFetchedFarms(),
+      this.getApy(),
+    ]);
 
     const farmTvls = {};
     (await Utils.multiCall((await this.getFetchedFarms()).map(farm => {
@@ -161,7 +175,7 @@ module.exports = class pancake {
         item.extra.transactionAddress = masterChefAddress;
       }
 
-      const apy = Utils.getApy(`cake-${symbol}`);
+      const apy = apys[`cakev2-${symbol}`];
       if (apy) {
         item.yield = {
           apy: apy * 100
@@ -176,6 +190,21 @@ module.exports = class pancake {
         const addressPrice = this.priceOracle.getAddressPrice(lpAddress);
         if (addressPrice) {
           item.tvl.usd = item.tvl.amount * addressPrice;
+        }
+      }
+
+      if (item.tvl && item.tvl.usd && farm.raw.yearlyRewardsInToken) {
+        const yearlyRewardsInToken = farm.raw.yearlyRewardsInToken;
+
+        if (item.raw.earns && item.raw.earns[0]) {
+          const tokenPrice = this.priceOracle.getAddressPrice(item.raw.earns[0].address);
+          if (tokenPrice) {
+            const dailyApr = (yearlyRewardsInToken * tokenPrice) / item.tvl.usd;
+
+            item.yield = {
+              apy: Utils.compoundCommon(dailyApr) * 100
+            };
+          }
         }
       }
 

@@ -3,20 +3,24 @@
 const { performance } = require("perf_hooks");
 const express = require("express");
 const _ = require("lodash");
+const timeout = require('connect-timeout');
 
 module.exports = class Http {
-  constructor(priceOracle, platforms, balances, addressTransactions, tokenCollector, liquidityTokenCollector) {
+  constructor(priceOracle, platforms, balances, addressTransactions, tokenCollector, liquidityTokenCollector, tokenInfo) {
     this.priceOracle = priceOracle;
     this.platforms = platforms;
     this.balances = balances;
     this.addressTransactions = addressTransactions;
     this.tokenCollector = tokenCollector;
     this.liquidityTokenCollector = liquidityTokenCollector;
+    this.tokenInfo = tokenInfo;
 
     this.app = express();
   }
 
   start(port = 3000) {
+    this.app.use(timeout('25s'));
+
     this.routes();
 
     this.app.listen(port, "0.0.0.0", () => {
@@ -29,6 +33,12 @@ module.exports = class Http {
 
     app.get("/prices", async (req, res) => {
       res.json(this.priceOracle.getAllPrices());
+    });
+
+    app.get("/token/:address", async (req, res) => {
+      const {address} = req.params;
+
+      res.json(await this.tokenInfo.getTokenInfo(address));
     });
 
     app.get("/tokens", async (req, res) => {

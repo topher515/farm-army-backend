@@ -5,25 +5,46 @@ const Web3EthContract = require("web3-eth-contract");
 const BigNumber = require("bignumber.js");
 const Utils = require("../../utils");
 const crypto = require('crypto');
-const request = require("async-request");
-
 const MasterAbi = require('./abi/master.json');
-const Farms = require('./farms/farms.json');
-
-const FarmsReqeust = require('./farms/request.json');
 
 module.exports = class mdex {
-  constructor(cache, priceOracle) {
+  constructor(cache, priceOracle, tokenCollector, farmCollector, cacheManager) {
     this.cache = cache;
     this.priceOracle = priceOracle;
+    this.tokenCollector = tokenCollector;
+    this.farmCollector = farmCollector;
+    this.cacheManager = cacheManager;
+  }
+
+  async getFetchedFarms() {
+    const cacheKey = `mdex-v2-master-farms`
+
+    const cache = await this.cacheManager.get(cacheKey)
+    if (cache) {
+      return cache;
+    }
+
+    const foo = (await this.farmCollector.fetchForMasterChef('0xc48fe252aa631017df253578b1405ea399728a50'));
+
+    const reformat = foo.map(f => {
+      f.lpAddresses = f.lpAddress
+
+      if (f.isTokenOnly === true) {
+        f.tokenAddresses = f.lpAddress
+      }
+
+      return f
+    })
+
+    await this.cacheManager.set(cacheKey, reformat, {ttl: 60 * 30})
+
+    return reformat;
   }
 
   async getLbAddresses() {
-    let lpAddresses = Farms
-      .filter(f => f.name.includes('/') && f.name.toLowerCase().includes('lp'))
+    return (await this.getFetchedFarms())
+      .filter(f => f.isTokenOnly === false)
       .map(f => f.lpAddress);
-
-    return _.uniq(lpAddresses);
   }
 
   async getAddressFarms(address) {
@@ -57,7 +78,7 @@ module.exports = class mdex {
   }
 
   async getFarms(refresh = false) {
-    const cacheKey = "getFarms-mdex";
+    const cacheKey = "getFarms-mdex-v2";
 
     if (!refresh) {
       const cacheItem = this.cache.get(cacheKey);
@@ -66,37 +87,30 @@ module.exports = class mdex {
       }
     }
 
-    const staticFarms = _.cloneDeep(Farms);
+    const rawFarms = await this.getFetchedFarms()
 
-    // unused: cloudflare block
-    const info = {};
+    const blockNumber = await Utils.getWeb3().eth.getBlockNumber();
 
-    (FarmsReqeust.result || []).forEach((pool, index) => {
-      const staticFind = staticFarms.find(f => f.pid.toString() === index.toString())
-
-      if (!staticFind) {
-        staticFarms.push({
-          "pid": index,
-          "lpAddress": pool.address,
-          "name": pool.pool_name,
-        })
+    let web3EthContract = new Web3EthContract(MasterAbi, '0xc48fe252aa631017df253578b1405ea399728a50');
+    const [reward] = await Utils.multiCall([
+      {
+        reward: web3EthContract.methods.reward(blockNumber),
+        totalAllocPoint: web3EthContract.methods.totalAllocPoint()
       }
-    })
+    ])
 
-    const farms = staticFarms.map(farm => {
+    const blockRewards = reward.reward;
+    const totalAllocPoint = reward.totalAllocPoint;
+
+    const farms = rawFarms.map(farm => {
       let id = crypto.createHash('md5')
         .update(farm.pid.toString())
         .digest("hex");
 
-      let name = farm.name.toLowerCase()
-        .replace('lp', '')
-        .replace('/', '-')
-        .trim()
-
       let item = {
         id: `mdex_${id}`,
-        name: name.toUpperCase(),
-        token: name.toLowerCase(),
+        name: farm.lpSymbol.toUpperCase(),
+        token: farm.lpSymbol.toLowerCase(),
         platform: 'mdex',
         raw: Object.freeze(farm),
         provider: 'mdex',
@@ -113,15 +127,35 @@ module.exports = class mdex {
         item.extra.lpAddress = farm.lpAddress;
       }
 
-      let httpInfo = info[farm.lpAddress.toLowerCase()];
-      if (httpInfo) {
-        if (httpInfo.pool_tvl) {
-          item.tvl = {
-            usd: httpInfo.pool_tvl
+      if (item.raw && item.raw.raw && item.raw.raw.poolInfo[5]) {
+        item.tvl = {
+          amount: item.raw.raw.poolInfo[5] / 1e18
+        };
+
+        const addressPrice = this.priceOracle.getAddressPrice(item.extra.transactionToken);
+        if (addressPrice) {
+          item.tvl.usd = item.tvl.amount * addressPrice;
+        }
+      }
+
+      if (farm.raw.allocPoint > 0 && item.tvl && item.tvl.usd) {
+        const allocPoint = farm.raw.allocPoint;
+        const poolBlockRewards = (blockRewards * allocPoint) / totalAllocPoint
+
+        const secondsPerBlock = 3;
+        const secondsPerYear = 31536000;
+        const yearlyRewards = (poolBlockRewards / secondsPerBlock) * secondsPerYear;
+
+        const price = this.priceOracle.findPrice('mdx');
+        if (price) {
+          const yearlyRewardsInUsd = (yearlyRewards * price) / 1e18;
+          const dailyApr = yearlyRewardsInUsd / item.tvl.usd
+
+          // compound(simpleApy, HOURLY_HPY, 1, 0.94);
+          item.yield = {
+            apy: Utils.compound(dailyApr, 8760, 0.94) * 100
           };
         }
-
-        // TODO: use "pool_apy"
       }
 
       return item;
@@ -257,5 +291,9 @@ module.exports = class mdex {
     }
 
     return result;
+  }
+
+  getName() {
+    return 'mdex';
   }
 };

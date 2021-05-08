@@ -40,8 +40,8 @@
     "decimals": 18
   },
   {
-    "symbol": "slme",
-    "address": "0x4fcfa6cc8914ab455b5b33df916d90bfe70b6ab1",
+    "symbol": "slime",
+    "address": "0x23b06097f8fe2dd9d3df094d3ee8319daa8756c1",
     "decimals": 18
   },
   {
@@ -55,8 +55,8 @@
     "decimals": 18
   },
   {
-    "symbol": "blzd",
-    "address": "0x57067A6BD75c0E95a6A5f158455926e43E79BeB0",
+    "symbol": "xblzd",
+    "address": "0x9a946c3Cb16c08334b69aE249690C236Ebd5583E",
     "decimals": 18
   },
   {
@@ -107,6 +107,26 @@
   {
     "symbol": "swamp",
     "address": "0xc5A49b4CBe004b6FD55B30Ba1dE6AC360FF9765d",
+    "decimals": 18
+  },
+  {
+    "symbol": "bboo",
+    "address": "0x51f015e3dEA234039fB536C358781118f36f1745",
+    "decimals": 18
+  },
+  {
+    "symbol": "brew",
+    "address": "0x790Be81C3cA0e53974bE2688cDb954732C9862e1",
+    "decimals": 18
+  },
+  {
+    "symbol": "belt",
+    "address": "0xE0e514c71282b6f4e823703a39374Cf58dc3eA4f",
+    "decimals": 18
+  },
+  {
+    "symbol": "panther",
+    "address": "0x1f546aD641B56b86fD9dCEAc473d1C7a357276B7",
     "decimals": 18
   }
 ]

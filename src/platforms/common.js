@@ -190,7 +190,22 @@ module.exports = {
           }
         }
 
-        return Object.freeze(item);
+        if (item.tvl && item.tvl.usd && farm.raw && farm.raw.yearlyRewardsInToken) {
+          const yearlyRewardsInToken = farm.raw.yearlyRewardsInToken;
+
+          if (item.raw.earns && item.raw.earns[0]) {
+            const tokenPrice = this.priceOracle.getAddressPrice(item.raw.earns[0].address);
+            if (tokenPrice) {
+              const dailyApr = (yearlyRewardsInToken * tokenPrice) / item.tvl.usd;
+
+              item.yield = {
+                apy: Utils.compoundCommon(dailyApr) * 100
+              };
+            }
+          }
+        }
+
+        return item;
       });
 
       const souses = this.getRawPools().map(farm => {
@@ -226,16 +241,22 @@ module.exports = {
           }
         }
 
-        return Object.freeze(item);
+        return item;
       });
 
-      const result = [...farms, ...souses]
+      const result = [...farms, ...souses];
 
-      this.cache.put(cacheKey, result, { ttl: 1000 * 60 * 30 });
+      if (typeof this.onFarmsBuild !== "undefined") {
+        await this.onFarmsBuild(result)
+      }
+
+      const finalResult = result.map(r => Object.freeze(r))
+
+      this.cache.put(cacheKey, finalResult, { ttl: 1000 * 60 * 30 });
 
       console.log(`${this.getName()} updated`);
 
-      return result;
+      return finalResult;
     }
 
     async getYields(address) {
